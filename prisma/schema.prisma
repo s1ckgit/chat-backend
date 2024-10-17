@@ -29,9 +29,11 @@ model UserContact {
   id         String   @id @default(uuid())
   userId     String
   contactId  String
+  conversationId  String?       @unique
 
   user       User     @relation("UserContacts", fields: [userId], references: [id])
   contact    User     @relation("ContactOfUser", fields: [contactId], references: [id])
+  conversation    Conversation? @relation(fields: [conversationId], references: [id])
 
   createdAt  DateTime @default(now())
 }
@@ -41,11 +43,12 @@ model UserContact {
 model Conversation {
   id            String                  @id @default(uuid())
   participants  User[] 
-  messages      Message[]              @relation("ConversationMessages")
+  messages      Message[]               @relation("ConversationMessages")
   lastMessage   Message?                @relation("LastMessage", fields: [lastMessageId], references: [id])
   lastMessageId String?                 @unique
+  contacts      UserContact[]           @relation
 
-  createdAt     DateTime               @default(now())
+  createdAt     DateTime                @default(now())
 }
 
 model Message {

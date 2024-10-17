@@ -14,7 +14,8 @@ export const setupMessagesRouter = (io: Server) => {
             some: { id: userId }
           }
         },
-        include: {
+        select: {
+          id: true,
           participants: {
             select: {
               login: true
@@ -25,16 +26,35 @@ export const setupMessagesRouter = (io: Server) => {
               }
             }
           },
-          lastMessage: true
+          lastMessage: {
+            select: {
+              content: true,
+              sender: true,
+              createdAt: true
+            }
+          }
         }
+        // include: {
+        //   participants: {
+        //     select: {
+        //       login: true
+        //     },
+        //     where: {
+        //       id: {
+        //         not: userId
+        //       }
+        //     }
+        //   },
+        //   lastMessage: true
+        // }
       });
       conversations.forEach((conversation) => {
         const roomId = conversation.id.toString();
         socket.join(roomId);
       });
 
-      socket.emit('rooms', {
-        rooms: conversations,
+      socket.emit('conversations', {
+        conversations,
       });
     } catch (error) {
       console.error('Error connecting to rooms:', error);

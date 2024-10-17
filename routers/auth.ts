@@ -31,7 +31,9 @@ router.post('/register', async (req, res) => {
       sameSite: 'strict',
       maxAge: 86400000
     })
-    res.status(201).send();
+    res.status(201).send({
+      id: newUser.id
+    });
     
   } catch(e) {
     res.status(400).json(e);
