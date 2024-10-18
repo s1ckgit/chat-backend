@@ -101,14 +101,14 @@ router.get('/me/contacts', async (req, res) => {
   const id = req.user?.id;
 
   try {
-    const contacts = await db.user.findUnique({
+    const contacts = await db.userContact.findMany({
       where: {
-        id
+        userId: id
       },
-      select: {
-        contacts: {
+      include: {
+        contact: {
           select: {
-            contact: true
+            login: true
           }
         }
       }
@@ -119,9 +119,7 @@ router.get('/me/contacts', async (req, res) => {
       return;
     }
 
-    const result = contacts.contacts.map(c => c.contact)
-
-    res.status(200).json(result);
+    res.status(200).json(contacts);
   } catch(e) {
     res.status(500).json({
       error: 'Ошибка сервера'
