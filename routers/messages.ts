@@ -133,11 +133,10 @@ export const setupMessagesRouter = (io: Server) => {
       socket.emit('conversations');
     } catch (error) {
       console.error('Error connecting to rooms:', error);
-      socket.emit('error', { message: 'Ошибка при подключении к комнатам.' });
+      socket.emit('error');
     }
 
-    socket.on('send_message', async ({ conversationId, senderId, receiverId, content }) => {
-      console.log('новое сообщение')
+    socket.on('send_message', async ({ conversationId, senderId, receiverId, content, id, createdAt, status }) => {
 
       try {
         let conversation
@@ -169,15 +168,23 @@ export const setupMessagesRouter = (io: Server) => {
             data: { conversationId: conversation.id }
           })
 
-          messagesNamespace.to([userId, contact?.contactId!]).emit('new_conversation');
+          messagesNamespace.to([userId, contact?.contactId!]).emit('new_conversation', {
+            id: conversation.id
+          });
+          messagesNamespace.to(userId).emit('new_conversation_opened', {
+            id: conversation.id
+          })
           console.log('новый диалог')
         }
 
         const message = await db.message.create({
           data: {
+            id,
+            createdAt,
             content,
             senderId,
             conversationId: conversation!.id,
+            status
           },
         });
 
@@ -186,10 +193,45 @@ export const setupMessagesRouter = (io: Server) => {
           data: { lastMessageId: message.id }
         })
 
-        messagesNamespace.to(conversation!.id.toString()).emit(`new_message_${conversation?.id}`);
+        await db.message.update({
+          where: {
+            id: message.id
+          },
+          data: {
+            status: 'delivered'
+          }
+        })
+
+        messagesNamespace.to(conversation!.id).emit(`new_message_${conversation?.id}`, {
+          id: message.id,
+          conversationId: conversation?.id
+        });
       } catch (e) {
           console.error('Error sending message:', e);
           socket.emit('error', { message: 'Ошибка на сервере при отправке сообщения.' });
+      }
+    })
+
+    socket.on('message_read', async ({ id, conversationId }) => {
+      try {
+        const message = await db.message.update({
+          where: {
+            id
+          },
+          data: {
+            status: 'read'
+          }
+        })
+  
+        const conversation = await db.conversation.findUnique({
+          where: {
+            id: conversationId
+          }
+        })
+  
+        messagesNamespace.to(conversation!.id).emit(`message_read_${message.id}`)
+      } catch(e) {
+        console.log('error', e)
       }
     })
   });

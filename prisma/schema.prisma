@@ -18,6 +18,7 @@ model User {
   id             String        @id @default(uuid())
   login          String        @unique
   password       String
+  refreshToken   String?
   contacts       UserContact[] @relation("UserContacts")
   contactOf      UserContact[] @relation("ContactOfUser")
   conversations   Conversation[]
@@ -52,11 +53,12 @@ model Conversation {
 }
 
 model Message {
-  id                String         @id @default(uuid())
+  id                String         @id
   content           String
   senderId          String
   conversationId    String
-  createdAt         DateTime       @default(now())
+  createdAt         DateTime
+  status            String
 
   sender            User           @relation("SentMessages", fields: [senderId], references: [id])
   conversation      Conversation   @relation("ConversationMessages", fields: [conversationId], references: [id])
