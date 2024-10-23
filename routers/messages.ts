@@ -63,9 +63,6 @@ const router = Router();
         select: {
           id: true,
           participants: {
-            select: {
-              login: true
-            },
             where: {
               id: {
                 not: userId
@@ -104,26 +101,6 @@ export const setupMessagesRouter = (io: Server) => {
             some: { id: userId }
           }
         },
-        select: {
-          id: true,
-          participants: {
-            select: {
-              login: true
-            },
-            where: {
-              id: {
-                not: userId
-              }
-            }
-          },
-          lastMessage: {
-            select: {
-              content: true,
-              sender: true,
-              createdAt: true
-            }
-          }
-        }
       });
       conversations.forEach((conversation) => {
         const roomId = conversation.id.toString();
@@ -136,7 +113,13 @@ export const setupMessagesRouter = (io: Server) => {
       socket.emit('error');
     }
 
-    socket.on('send_message', async ({ conversationId, senderId, receiverId, content, id, createdAt, status }) => {
+    socket.on('typing', async ({ userId, conversationId }) => {
+      messagesNamespace.to(conversationId).emit(`typing_${conversationId}`, {
+        userId
+      })
+    })
+
+    socket.on('send_message', async ({ conversationId, senderId, receiverId, content, id: messageId, createdAt, status }) => {
 
       try {
         let conversation
@@ -179,7 +162,7 @@ export const setupMessagesRouter = (io: Server) => {
 
         const message = await db.message.create({
           data: {
-            id,
+            id: messageId,
             createdAt,
             content,
             senderId,
@@ -202,10 +185,9 @@ export const setupMessagesRouter = (io: Server) => {
           }
         })
 
-        messagesNamespace.to(conversation!.id).emit(`new_message_${conversation?.id}`, {
-          id: message.id,
-          conversationId: conversation?.id
-        });
+        messagesNamespace.to(conversation!.id).emit(`new_message_${conversation?.id}`);
+        console.log('new message')
+
       } catch (e) {
           console.error('Error sending message:', e);
           socket.emit('error', { message: 'Ошибка на сервере при отправке сообщения.' });
