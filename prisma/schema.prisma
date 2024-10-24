@@ -19,6 +19,7 @@ model User {
   login          String        @unique
   password       String
   refreshToken   String?
+  status         String?
   contacts       UserContact[] @relation("UserContacts")
   contactOf      UserContact[] @relation("ContactOfUser")
   conversations   Conversation[]

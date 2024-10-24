@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../prisma/client';
 import { Server } from "socket.io";
+import { connectToAllConversations, controlSessionsCount, createMessage, getOrCreateConversation, getUserStatus } from '../utils/db';
 
 const router = Router();
 
@@ -89,29 +90,27 @@ const router = Router();
 
 export const setupMessagesRouter = (io: Server) => {
   const messagesNamespace = io.of('/api/messages');
+  const statusesNamespace = io.of('/api/statuses');
+
+  statusesNamespace.on('connection', async (socket) => {
+    socket.on('get_status', async ({ id }) => {
+      const status = await getUserStatus(id);
+      socket.join(`status-${id}`);
+      statusesNamespace.to(`status-${id}`).emit(`status_${id}`, {
+        status: status
+      });
+    })
+    socket.on('get_status_off', async ({ id }) => {
+      socket.leave(`status-${id}`)
+    })
+  })
 
   messagesNamespace.on('connection', async (socket) => {
     const userId = socket.handshake.query.userId as string;
+    if(!userId) return;
     socket.join(userId);
-
-    try {
-      const conversations = await db.conversation.findMany({
-        where: {
-          participants: {
-            some: { id: userId }
-          }
-        },
-      });
-      conversations.forEach((conversation) => {
-        const roomId = conversation.id.toString();
-        socket.join(roomId);
-      });
-
-      socket.emit('conversations');
-    } catch (error) {
-      console.error('Error connecting to rooms:', error);
-      socket.emit('error');
-    }
+    await connectToAllConversations({ userId, socket });
+    await controlSessionsCount({ userId, messagesSocket: socket, statusesNamespace });
 
     socket.on('typing', async ({ userId, conversationId }) => {
       messagesNamespace.to(conversationId).emit(`typing_${conversationId}`, {
@@ -122,71 +121,9 @@ export const setupMessagesRouter = (io: Server) => {
     socket.on('send_message', async ({ conversationId, senderId, receiverId, content, id: messageId, createdAt, status }) => {
 
       try {
-        let conversation
-
-        if(conversationId) {
-          conversation = await db.conversation.findFirst({
-            where: {
-              id: conversationId
-            }
-          })
-        } else {
-          conversation = await db.conversation.create({
-            data: {
-              participants: {
-                connect: [
-                  { id: senderId },
-                  { id: receiverId }
-                ]
-              }
-            }
-          });
-
-          const contact = await db.userContact.findFirst({
-            where: { userId, contactId: receiverId }
-          })
-
-          await db.userContact.update({
-            where: { id: contact?.id },
-            data: { conversationId: conversation.id }
-          })
-
-          messagesNamespace.to([userId, contact?.contactId!]).emit('new_conversation', {
-            id: conversation.id
-          });
-          messagesNamespace.to(userId).emit('new_conversation_opened', {
-            id: conversation.id
-          })
-          console.log('новый диалог')
-        }
-
-        const message = await db.message.create({
-          data: {
-            id: messageId,
-            createdAt,
-            content,
-            senderId,
-            conversationId: conversation!.id,
-            status
-          },
-        });
-
-        await db.conversation.update({
-          where: { id: conversation!.id },
-          data: { lastMessageId: message.id }
-        })
-
-        await db.message.update({
-          where: {
-            id: message.id
-          },
-          data: {
-            status: 'delivered'
-          }
-        })
-
-        messagesNamespace.to(conversation!.id).emit(`new_message_${conversation?.id}`);
-        console.log('new message')
+        const conversation = await getOrCreateConversation({ conversationId, senderId, receiverId, userId, namespace: messagesNamespace })
+        
+        await createMessage({ messageId, createdAt, content, senderId, conversation, status, namespace: messagesNamespace })
 
       } catch (e) {
           console.error('Error sending message:', e);
