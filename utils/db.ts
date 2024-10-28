@@ -1,6 +1,7 @@
 import { Namespace, Socket } from 'socket.io';
 import db from '../prisma/client';
 import redis from '../redis/client';
+import cron from 'node-cron';
 
 export async function getOrCreateConversation({ conversationId, senderId, receiverId, userId, namespace }: { conversationId: string, senderId: string, receiverId: string, userId: string, namespace: Namespace }) {
   if (conversationId) {
@@ -46,6 +47,10 @@ export async function connectToAllConversations({ userId, socket }: { userId: st
     });
 
     socket.emit('conversations');
+    
+    socket.on('new_conversation', ({ id }) => {
+      socket.join(id);
+    })
   } catch (error) {
     console.error('Error connecting to rooms:', error);
     socket.emit('error');
@@ -78,8 +83,10 @@ export async function createMessage({ messageId, createdAt, content, senderId, c
     }
   })
 
-  namespace.to(conversation!.id).emit(`new_message_${conversation!.id}`);
-  console.log('new message')
+
+  namespace.to(conversation!.id).emit(`new_message_${conversation!.id}`, {
+    message
+  });
 }
 
 export async function controlSessionsCount({ userId, messagesSocket, statusesNamespace }: { userId: string, messagesSocket: Socket, statusesNamespace: Namespace }) {
@@ -95,16 +102,17 @@ export async function controlSessionsCount({ userId, messagesSocket, statusesNam
     });
   }
 
+  await redis.zRem("disconnect_timers", userId);
+  
   messagesSocket.on('disconnect', async () => {
     const sessionsCount = await redis.decr(`active_sessions:${userId}`);
     console.log('disconnected', sessionsCount);
 
     if (sessionsCount <= 0) {
       await redis.del(`active_sessions:${userId}`);
-      await updateUserStatus({ userId, status: 'offline' });
-      statusesNamespace.to(`status-${userId}`).emit(`status_${userId}`, {
-        status: 'offline'
-      });
+
+      const disconnectTime = Date.now() + 30000;
+      await redis.zAdd("disconnect_timers", [{ score: disconnectTime, value: userId }]);
     }
   });
 } 
@@ -135,4 +143,40 @@ export async function getUserStatus(userId: string) {
   }
 
   return null;
+}
+
+export async function processOfflineStatus(statusesNamespace: Namespace) {
+  const now = Date.now();
+  
+  const expiredUsers = await redis.zRangeByScore("disconnect_timers", "-inf", now);
+
+  const promises = expiredUsers.map(async (userId) => {
+    try {
+      await updateUserStatus({ userId, status: 'offline' });
+      statusesNamespace.to(`status-${userId}`).emit(`status_${userId}`, { status: 'offline' });
+      await redis.zRem("disconnect_timers", userId);
+    } catch (error) {
+      console.error(`Error updating status for user ${userId}:`, error);
+    }
+  });
+  
+  await Promise.all(promises);  
+}
+
+export function startStatusUpdater(statusesNamespace: Namespace) {
+  cron.schedule('*/10 * * * * *', async () => {
+    await processOfflineStatus(statusesNamespace);
+  });
+}
+
+export async function getUnreadCount({ conversationId, userId }: { conversationId: string, userId: string }) {
+  const messageKeys = await redis.keys(`unread_messages:${conversationId}:*`);
+  let unreadCount = 0;
+
+  const promises = messageKeys.map(key => redis.sIsMember(key, userId));
+  const results = await Promise.all(promises);
+
+  unreadCount = results.filter(isUnread => isUnread).length;
+
+  return unreadCount;
 }

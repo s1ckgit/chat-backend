@@ -3,11 +3,59 @@ import jwt from 'jsonwebtoken';
 
 import db from '../prisma/client';
 import { hashPassword, verifyPassword } from "../utils/bcrypt";
-import { error } from "console";
 
 const router = Router();
 
 const ONE_YEAR = 10 * 365 * 24 * 60 * 60 * 1000;
+
+router.post('/refresh-token', async (req, res) => {
+  try {
+    const { refreshToken } = req.cookies;
+    if(!refreshToken) {
+      res.status(401).json({
+        error: 'Токен обновления отсутствует',
+        reason: 'unauthorized'
+      })
+      return
+    }
+
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey') as { id: string };
+    const user = await db.user.findUnique({
+      where: { id: decoded.id },
+    });
+
+    if (user && user.refreshToken === refreshToken) {
+      const newAccessToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET ?? 'secretKey', { expiresIn: '1h' });
+      const newRefreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey');
+
+      await db.user.update({
+        where: { id: user.id },
+        data: { refreshToken: newRefreshToken },
+      });
+
+      res.cookie('accessToken', newAccessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 60 * 60 * 1000,
+      });
+      
+      res.cookie('refreshToken', newRefreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: ONE_YEAR,
+      });
+
+      res.status(200).json({ message: 'Токены обновлены' });
+    } else {
+      res.status(401).json({ error: 'Ошибка авторизации. Неверный токен.', reason: 'unauthorized' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(401).json({ error: 'Ошибка авторизации. Неверный токен.' });
+  }
+})
 
 router.post('/register', async (req, res) => {
   const { login, password } = req.body;
@@ -41,14 +89,14 @@ router.post('/register', async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: ONE_YEAR
+      maxAge: 60 * 60 * 1000 * 8760
     })
   
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 60 *60 * 1000
+      maxAge: 60 * 60 * 1000
     })
 
     res.status(201).send({
