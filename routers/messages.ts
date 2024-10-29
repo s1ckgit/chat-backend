@@ -20,7 +20,7 @@ const router = Router();
         }
       })
     
-      res.status(200).json(messages);
+      res.status(200).json(messages?.messages);
     } catch(e) {
       res.status(500).json({
         error: 'Ошибка сервера. Невозможно получить сообщения'

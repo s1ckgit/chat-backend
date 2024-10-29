@@ -58,7 +58,7 @@ export async function connectToAllConversations({ userId, socket }: { userId: st
 }
 
 export async function createMessage({ messageId, createdAt, content, senderId, conversation, status, namespace }: { messageId: string, createdAt: string, content: string, senderId: string, conversation: { id: string; lastMessageId: string | null; createdAt: Date; } | null, status: string, namespace: Namespace }) {
-  const message = await db.message.create({
+  let message = await db.message.create({
     data: {
       id: messageId,
       createdAt,
@@ -74,7 +74,7 @@ export async function createMessage({ messageId, createdAt, content, senderId, c
     data: { lastMessageId: message.id }
   })
 
-  await db.message.update({
+  message = await db.message.update({
     where: {
       id: message.id
     },
@@ -83,8 +83,8 @@ export async function createMessage({ messageId, createdAt, content, senderId, c
     }
   })
 
-
   namespace.to(conversation!.id).emit(`new_message_${conversation!.id}`, {
+    senderId,
     message
   });
 }

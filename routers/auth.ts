@@ -6,8 +6,6 @@ import { hashPassword, verifyPassword } from "../utils/bcrypt";
 
 const router = Router();
 
-const ONE_YEAR = 10 * 365 * 24 * 60 * 60 * 1000;
-
 router.post('/refresh-token', async (req, res) => {
   try {
     const { refreshToken } = req.cookies;
@@ -26,7 +24,7 @@ router.post('/refresh-token', async (req, res) => {
 
     if (user && user.refreshToken === refreshToken) {
       const newAccessToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET ?? 'secretKey', { expiresIn: '1h' });
-      const newRefreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey');
+      const newRefreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey', { expiresIn: '365d' });
 
       await db.user.update({
         where: { id: user.id },
@@ -44,7 +42,7 @@ router.post('/refresh-token', async (req, res) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
-        maxAge: ONE_YEAR,
+        maxAge: 60 * 60 * 1000 * 8760
       });
 
       res.status(200).json({ message: 'Токены обновлены' });
@@ -74,7 +72,9 @@ router.post('/register', async (req, res) => {
       expiresIn: '1h'
     })
 
-    const refreshToken = jwt.sign({ id: newUser.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey')
+    const refreshToken = jwt.sign({ id: newUser.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey', {
+      expiresIn: '365d'
+    })
 
     await db.user.update({
       where: {
@@ -137,7 +137,9 @@ router.post('/login', async (req, res) => {
     expiresIn: '1h'
   })
 
-  const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey')
+  const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey', {
+    expiresIn: '365d'
+  })
 
   await db.user.update({
     where: {
@@ -152,7 +154,7 @@ router.post('/login', async (req, res) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
-    maxAge: ONE_YEAR
+    maxAge: 60 * 60 * 1000 * 8760
   })
 
   res.cookie('accessToken', accessToken, {

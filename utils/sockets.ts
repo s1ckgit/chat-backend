@@ -44,46 +44,38 @@ export const setupSockets = (io: Server) => {
 
         await redis.sAdd(`unread_messages:${conversation?.id}:${messageId}`, receiverId);
 
+        const unreadCount = await getUnreadCount({ conversationId, userId: receiverId });
+        messagesNamespace.to(receiverId).emit(`unread_count_${conversationId}`, { unreadCount });
+
       } catch (e) {
           console.error('Error sending message:', e);
           socket.emit('error', { message: 'Ошибка на сервере при отправке сообщения.' });
       }
     })
 
-    socket.on('message_read', async ({ id, conversationId }) => {
+    socket.on('messages_read', async ({ ids, conversationId }) => {
       try {
-        const message = await db.message.update({
+        await db.message.updateMany({
           where: {
-            id
+            id: { in: ids }
           },
           data: {
             status: 'read'
           }
         });
 
-        await redis.sRem(`unread_messages:${conversationId}:${message.id}`, userId);
-  
-        const conversation = await db.conversation.findUnique({
-          where: {
-            id: conversationId
-          }
-        })
-  
-        messagesNamespace.to(conversation!.id).emit(`message_read_${message.id}`)
+        for (const messageId of ids) {
+          await redis.sRem(`unread_messages:${conversationId}:${messageId}`, userId);
+          messagesNamespace.to(conversationId).emit(`message_read_${messageId}`);
+        }
+
+        const unreadCount = await getUnreadCount({ conversationId, userId });
+        messagesNamespace.to(userId).emit(`unread_count_${conversationId}`, { unreadCount });
+        console.log('messages_read')
       } catch(e) {
         console.log('error', e)
       }
     })
-
-    socket.on('request_unread_count', async ({ conversationId, userId }) => {
-      try {
-        const unreadCount = await getUnreadCount({ conversationId, userId });
-        socket.emit(`unread_count_${conversationId}`, { unreadCount });
-      } catch (error) {
-        console.error('Error fetching unread count:', error);
-        socket.emit('error', { message: 'Ошибка при получении количества непрочитанных сообщений.' });
-      }
-    });
   
   });
 } 
