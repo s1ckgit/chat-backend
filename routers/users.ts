@@ -98,6 +98,23 @@ router.get('/me', async (req, res) => {
   }
 })
 
+router.post('/me', async (req, res) => {
+  const data = req.body;
+  const id = req.user?.id;
+
+  try {
+    const user = await db.user.update({
+      where: {
+        id
+      },
+      data
+    })
+    res.status(200).send(user)
+  } catch(e) {
+    console.log(e);
+  }
+})
+
 router.get('/me/contacts', async (req, res) => {
   const id = req.user?.id;
 

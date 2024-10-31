@@ -66,9 +66,11 @@ export const setupSockets = (io: Server) => {
 
         for (const messageId of ids) {
           await redis.sRem(`unread_messages:${conversationId}:${messageId}`, userId);
-          messagesNamespace.to(conversationId).emit(`message_read_${messageId}`);
         }
-
+        messagesNamespace.to(conversationId).emit(`messages_read_${conversationId}`, {
+          ids
+        });
+        
         const unreadCount = await getUnreadCount({ conversationId, userId });
         messagesNamespace.to(userId).emit(`unread_count_${conversationId}`, { unreadCount });
         console.log('messages_read')
@@ -76,6 +78,10 @@ export const setupSockets = (io: Server) => {
         console.log('error', e)
       }
     })
-  
+
+    socket.on('request_unread_count', async ({ conversationId }) => {
+      const unreadCount = await getUnreadCount({ conversationId, userId });
+      socket.emit(`unread_count_${conversationId}`, { unreadCount });
+    })
   });
 } 

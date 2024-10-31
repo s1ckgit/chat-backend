@@ -20,6 +20,7 @@ model User {
   password       String
   refreshToken   String?
   status         String?
+  avatarSrc      String?
   contacts       UserContact[] @relation("UserContacts")
   contactOf      UserContact[] @relation("ContactOfUser")
   conversations   Conversation[]

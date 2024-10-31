@@ -152,8 +152,9 @@ export async function processOfflineStatus(statusesNamespace: Namespace) {
 
   const promises = expiredUsers.map(async (userId) => {
     try {
-      await updateUserStatus({ userId, status: 'offline' });
-      statusesNamespace.to(`status-${userId}`).emit(`status_${userId}`, { status: 'offline' });
+      const now = Date.now();
+      await updateUserStatus({ userId, status: `lastActive:${now}` });
+      statusesNamespace.to(`status-${userId}`).emit(`status_${userId}`, { status: `lastActive:${now}` });
       await redis.zRem("disconnect_timers", userId);
     } catch (error) {
       console.error(`Error updating status for user ${userId}:`, error);
