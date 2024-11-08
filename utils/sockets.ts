@@ -35,12 +35,12 @@ export const setupSockets = (io: Server) => {
       })
     })
 
-    socket.on('send_message', async ({ conversationId, senderId, receiverId, content, id: messageId, createdAt, status }) => {
+    socket.on('send_message', async ({ conversationId, senderId, receiverId, content, id: messageId, createdAt, status, attachments }) => {
 
       try {
         const conversation = await getOrCreateConversation({ conversationId, senderId, receiverId, userId, namespace: messagesNamespace })
         
-        await createMessage({ messageId, createdAt, content, senderId, conversation, status, namespace: messagesNamespace })
+        await createMessage({ messageId, createdAt, content, senderId, conversation, status, attachments, namespace: messagesNamespace })
 
         await redis.sAdd(`unread_messages:${conversation?.id}:${messageId}`, receiverId);
 

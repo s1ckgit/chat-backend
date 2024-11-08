@@ -57,7 +57,7 @@ export async function connectToAllConversations({ userId, socket }: { userId: st
   }
 }
 
-export async function createMessage({ messageId, createdAt, content, senderId, conversation, status, namespace }: { messageId: string, createdAt: string, content: string, senderId: string, conversation: { id: string; lastMessageId: string | null; createdAt: Date; } | null, status: string, namespace: Namespace }) {
+export async function createMessage({ messageId, createdAt, content, senderId, conversation, status, attachments, namespace }: { attachments: { secure_url: string, preview_url: string }[], messageId: string, createdAt: string, content: string, senderId: string, conversation: { id: string; lastMessageId: string | null; createdAt: Date; } | null, status: string, namespace: Namespace }) {
   let message = await db.message.create({
     data: {
       id: messageId,
@@ -65,7 +65,8 @@ export async function createMessage({ messageId, createdAt, content, senderId, c
       content,
       senderId,
       conversationId: conversation!.id,
-      status
+      status,
+      attachments
     },
   });
 
@@ -84,7 +85,6 @@ export async function createMessage({ messageId, createdAt, content, senderId, c
   })
 
   namespace.to(conversation!.id).emit(`new_message_${conversation!.id}`, {
-    senderId,
     message
   });
 }

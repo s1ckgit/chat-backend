@@ -20,7 +20,7 @@ model User {
   password       String
   refreshToken   String?
   status         String?
-  avatarSrc      String?
+  avatarVersion  String?
   contacts       UserContact[] @relation("UserContacts")
   contactOf      UserContact[] @relation("ContactOfUser")
   conversations   Conversation[]
@@ -61,6 +61,7 @@ model Message {
   conversationId    String
   createdAt         DateTime
   status            String
+  attachments       Json?        
 
   sender            User           @relation("SentMessages", fields: [senderId], references: [id])
   conversation      Conversation   @relation("ConversationMessages", fields: [conversationId], references: [id])

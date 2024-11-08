@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import db from '../prisma/client';
+import multer from 'multer';
+import { uploadAttachments } from '../utils/media';
 
 const router = Router();
+const upload = multer();
 
   router.get('/messages/:id', async (req, res) => {
     const conversationId = req.params.id;
@@ -93,6 +96,24 @@ const router = Router();
         error: 'Ошибка сервера. Повторите попытку позже'
       })
     }
+  })
+
+  router.post('/messages/attachments', upload.array('attachments'), async (req, res) => {
+    const { conversationId, messageId } = req.body;
+    const attachments = req.files as Express.Multer.File[];
+    console.log(attachments);
+
+    if(!attachments) {
+      res.status(400).json({
+        message: 'Нет вложений'
+      })
+      return;
+    }
+
+    const attachmentLinks = await uploadAttachments({ conversationId, messageId, files: attachments })
+
+    res.status(200).json(attachmentLinks);
+    return;
   })
 
 export default router;

@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import db from '../prisma/client';
+import multer from 'multer';
+import { uploadAvatar } from '../utils/media';
 
 const router = Router();
+const upload = multer();
 
 router.get('/user/:id', async (req, res) => {
   const id = req.params.id;
@@ -142,6 +145,59 @@ router.get('/me/contacts', async (req, res) => {
     res.status(500).json({
       error: 'Ошибка сервера'
     })
+  }
+})
+
+router.post('/me/avatar', upload.single('file'), async (req, res) => {
+  if(!req.file) {
+    res.status(400).json({ message: 'Файл не найден' })
+    return
+  }
+  const userId = req.user!.id;
+
+  try {
+    const version = await uploadAvatar(req.file, userId);
+
+    await db.user.update({
+      where: {
+        id: userId
+      },
+      data: {
+        avatarVersion: version.toString()
+      }
+    })
+
+    res.status(200).json({ message: 'Файл успешно загружен' })
+    return;
+  } catch(e) {
+    res.status(500).json({ message: `Ошибка: ${e}` })
+  }
+})
+
+router.get('/user/:id/:property', async (req, res) => {
+  const { id, property } = req.params;
+
+  try {
+    const user = await db.user.findUnique({
+      where: {
+        id
+      },
+      select: {
+        [property]: true
+      }
+    })
+
+    if(!user) {
+      res.status(404).json({ message: 'Пользователь с таким id не найден' })
+      return;
+    }
+    res.status(200).json({
+      [property]: user[property]
+    })
+    return;
+  } catch(e) {
+    res.status(500).send(e)
+    return;
   }
 })
 
