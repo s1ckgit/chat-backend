@@ -46,11 +46,10 @@ export const uploadAttachments = async ({ conversationId, messageId, files }: { 
     uploadPromises.push(promise);
   })
 
-  const data = await Promise.all(uploadPromises)
-
+  const data = await Promise.all(uploadPromises);
 
   return data.map((d) => ({
-    secure_url: d.secure_url,
-    preview_url: d.eager[0].secure_url as string
+    originalUrl: d.secure_url,
+    previewUrl: d.eager[0].secure_url as string
   }));
 }

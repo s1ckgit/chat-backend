@@ -100,19 +100,19 @@ const upload = multer();
 
   router.post('/messages/attachments', upload.array('attachments'), async (req, res) => {
     const { conversationId, messageId } = req.body;
-    const attachments = req.files as Express.Multer.File[];
-    console.log(attachments);
+    const attachmentsFiles = req.files as Express.Multer.File[];
+    console.log(attachmentsFiles);
 
-    if(!attachments) {
+    if(!attachmentsFiles) {
       res.status(400).json({
         message: 'Нет вложений'
       })
       return;
     }
 
-    const attachmentLinks = await uploadAttachments({ conversationId, messageId, files: attachments })
+    const attachments = await uploadAttachments({ conversationId, messageId, files: attachmentsFiles })
 
-    res.status(200).json(attachmentLinks);
+    res.status(200).json(attachments);
     return;
   })
 
