@@ -2,6 +2,7 @@ import { Namespace, Socket } from 'socket.io';
 import db from '../prisma/client';
 import redis from '../redis/client';
 import cron from 'node-cron';
+import { format } from "date-fns";
 
 export async function getOrCreateConversation({ conversationId, senderId, receiverId, userId, namespace }: { conversationId: string, senderId: string, receiverId: string, userId: string, namespace: Namespace }) {
   if (conversationId) {
@@ -84,8 +85,11 @@ export async function createMessage({ messageId, createdAt, content, senderId, c
     }
   })
 
+  const dateGroup = format(new Date(), 'dd.MM.yyyy')
+
   namespace.to(conversation!.id).emit(`new_message_${conversation!.id}`, {
-    message
+    message,
+    dateGroup
   });
 }
 

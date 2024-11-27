@@ -10,20 +10,30 @@ const upload = multer();
     const conversationId = req.params.id;
   
     try {
-      const messages = await db.conversation.findFirst({
-        where: {
-          id: conversationId
-        },
-        select: {
-          messages: {
-            orderBy: {
-              createdAt: 'asc'
-            }
-          }
-        }
-      })
+      // const messages = await db.conversation.findFirst({
+      //   where: {
+      //     id: conversationId
+      //   },
+      //   select: {
+      //     messages: {
+      //       orderBy: {
+      //         createdAt: 'asc'
+      //       }
+      //     }
+      //   }
+      // })
+
+      const result = await db.$queryRaw`
+        SELECT 
+          TO_CHAR("createdAt", 'DD.MM.YYYY') AS date,
+          JSON_AGG(m.* ORDER BY m."createdAt") AS messages
+        FROM "Message" m
+        WHERE m."conversationId" = ${conversationId}
+        GROUP BY date
+        ORDER BY date ASC;
+      `;
     
-      res.status(200).json(messages?.messages);
+      res.status(200).json(result);
     } catch(e) {
       res.status(500).json({
         error: 'Ошибка сервера. Невозможно получить сообщения'
@@ -80,13 +90,7 @@ const upload = multer();
               }
             }
           },
-          lastMessage: {
-            select: {
-              content: true,
-              sender: true,
-              createdAt: true
-            }
-          }
+          lastMessage: true
         }
       });
   

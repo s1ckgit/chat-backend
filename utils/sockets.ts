@@ -6,6 +6,17 @@ import redis from '../redis/client';
 export const setupSockets = (io: Server) => {
   const messagesNamespace = io.of('/api/messages');
   const statusesNamespace = io.of('/api/statuses');
+  const usersNamespace = io.of('/api/users');
+
+  usersNamespace.on('connection', async (socket) => {
+    socket.on(`user_avatar`, ({ id }) => {
+      socket.join(`user_avatar_${id}`);
+    })
+
+    socket.on(`user_avatar_update`, ({ id }) => {
+      usersNamespace.to(`user_avatar_${id}`).emit(`user_avatar_update_${id}`)
+    })
+  })
 
   startStatusUpdater(statusesNamespace);
 
@@ -13,7 +24,7 @@ export const setupSockets = (io: Server) => {
     socket.on('get_status', async ({ id }) => {
       const status = await getUserStatus(id);
       socket.join(`status-${id}`);
-      statusesNamespace.to(`status-${id}`).emit(`status_${id}`, {
+      socket.emit(`status_${id}`, {
         status: status
       });
     })

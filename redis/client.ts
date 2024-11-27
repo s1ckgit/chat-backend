@@ -8,7 +8,11 @@ const client = createClient({
     }
 });
 
-client.connect().catch((err) => {
+client.connect()
+.then(() => {
+  console.log('reddis connected')
+})
+.catch((err) => {
   console.error('Ошибка подключения к Redis:', err);
 });
 

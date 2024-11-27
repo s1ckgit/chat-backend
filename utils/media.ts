@@ -13,14 +13,16 @@ const convertImageFileToBase64 = (imageFile: Express.Multer.File) => {
 export const uploadAvatar = async (imageFile: Express.Multer.File, userId: string) => {
   const image = convertImageFileToBase64(imageFile);
 
-  await uploader.upload(image, {
+  console.time('avatar upload');
+
+  const thumbnailPromise = uploader.upload(image, {
     upload_preset: 'public_avatars_thumbnail',
     public_id: `avatars/${userId}/thumbnail`,
     overwrite: true,
     asset_folder: `user-${userId}/avatars`,
     use_asset_folder_as_public_id_prefix: false
   })
-  const data = await uploader.upload(image, {
+  const originalPromise = uploader.upload(image, {
     upload_preset: 'public_avatars',
     public_id: `avatars/${userId}`,
     overwrite: true,
@@ -28,7 +30,14 @@ export const uploadAvatar = async (imageFile: Express.Multer.File, userId: strin
     use_asset_folder_as_public_id_prefix: false
   })
 
-  return data.version;
+  const [{ secure_url: thumbnailUrl }, { secure_url: originalUrl }] = await Promise.all([thumbnailPromise, originalPromise]);
+
+  console.timeEnd('avatar upload');
+
+  return {
+    thumbnailUrl,
+    originalUrl
+  };
 }
 
 export const uploadAttachments = async ({ conversationId, messageId, files }: { conversationId: string, messageId: string, files: Express.Multer.File[] }) => {

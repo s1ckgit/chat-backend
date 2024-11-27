@@ -76,7 +76,7 @@ router.post('/contacts/add', async (req, res) => {
 
 router.get('/me', async (req, res) => {
   const id = req.user?.id;
-  console.log('me');
+  console.log('me', Date.now());
 
   try {
     const user = await db.user.findUnique({
@@ -129,6 +129,7 @@ router.get('/me/contacts', async (req, res) => {
       include: {
         contact: {
           select: {
+            id: true,
             login: true
           }
         }
@@ -156,14 +157,14 @@ router.post('/me/avatar', upload.single('file'), async (req, res) => {
   const userId = req.user!.id;
 
   try {
-    const version = await uploadAvatar(req.file, userId);
+    const avatars = await uploadAvatar(req.file, userId);
 
     await db.user.update({
       where: {
         id: userId
       },
       data: {
-        avatarVersion: version.toString()
+        avatars
       }
     })
 
@@ -191,9 +192,7 @@ router.get('/user/:id/:property', async (req, res) => {
       res.status(404).json({ message: 'Пользователь с таким id не найден' })
       return;
     }
-    res.status(200).json({
-      [property]: user[property]
-    })
+    res.status(200).json(user[property]);
     return;
   } catch(e) {
     res.status(500).send(e)
