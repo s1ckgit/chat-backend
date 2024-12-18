@@ -95,7 +95,7 @@ export async function createMessage({
       content,
       senderId,
       conversationId,
-      status,
+      status: 'delivered',
       attachments
     },
   });
@@ -105,14 +105,14 @@ export async function createMessage({
     data: { lastMessageId: message.id }
   })
 
-  message = await db.message.update({
-    where: {
-      id: message.id
-    },
-    data: {
-      status: 'delivered'
-    }
-  })
+  // message = await db.message.update({
+  //   where: {
+  //     id: message.id
+  //   },
+  //   data: {
+  //     status: 'delivered'
+  //   }
+  // })
 
   const dateGroup = format(new Date(), 'dd.MM.yyyy')
 
