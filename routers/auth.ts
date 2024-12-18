@@ -3,18 +3,16 @@ import jwt from 'jsonwebtoken';
 
 import db from '../prisma/client';
 import { hashPassword, verifyPassword } from "../utils/bcrypt";
+import { clearTokensForUser, generateTokensForUser, getDecodedOAuthJwtGoogle, reuploadPhotoToCloudinary } from "../utils/auth";
+import { AppError, wrapUnknowErrorIntoAppErrorInstance } from "../utils/errors";
 
 const router = Router();
 
-router.post('/refresh-token', async (req, res) => {
+router.post('/refresh-token', async (req, res, next) => {
   try {
     const { refreshToken } = req.cookies;
     if(!refreshToken) {
-      res.status(401).json({
-        error: 'Токен обновления отсутствует',
-        reason: 'unauthorized'
-      })
-      return
+      throw new AppError('Токен обновления отсутствует', 401)
     }
 
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey') as { id: string };
@@ -23,39 +21,19 @@ router.post('/refresh-token', async (req, res) => {
     });
 
     if (user && user.refreshToken === refreshToken) {
-      const newAccessToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET ?? 'secretKey', { expiresIn: '1h' });
-      const newRefreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey', { expiresIn: '365d' });
-
-      await db.user.update({
-        where: { id: user.id },
-        data: { refreshToken: newRefreshToken },
-      });
-
-      res.cookie('accessToken', newAccessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 60 * 60 * 1000,
-      });
-      
-      res.cookie('refreshToken', newRefreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 60 * 60 * 1000 * 8760
-      });
+      await generateTokensForUser(user.id, res);
 
       res.status(200).json({ message: 'Токены обновлены' });
     } else {
-      res.status(401).json({ error: 'Ошибка авторизации. Неверный токен.', reason: 'unauthorized' });
+      throw new AppError('Ошибка авторизации. Неверный токен обновления.', 401)
     }
   } catch (error) {
-    console.error(error);
-    res.status(401).json({ error: 'Ошибка авторизации. Неверный токен.' });
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error)
+    next(wrappedError)
   }
 })
 
-router.post('/register', async (req, res) => {
+router.post('/register', async (req, res, next) => {
   const { login, password } = req.body;
 
   const hashedPassword = await hashPassword(password);
@@ -67,140 +45,137 @@ router.post('/register', async (req, res) => {
         password: hashedPassword
       }
     })
-
-    const accessToken = jwt.sign({ id: newUser.id }, process.env.JWT_SECRET ?? 'secretKey', {
-      expiresIn: '1h'
-    })
-
-    const refreshToken = jwt.sign({ id: newUser.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey', {
-      expiresIn: '365d'
-    })
-
-    await db.user.update({
-      where: {
-        id: newUser.id
-      },
-      data: {
-        refreshToken
-      }
-    })
-
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 60 * 1000 * 8760
-    })
   
-    res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 60 * 1000
-    })
-
+    await generateTokensForUser(newUser.id, res)
+  
     res.status(201).send({
       id: newUser.id
     });
+  } catch (error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error)
+    next(wrappedError)
+  }
+})
+
+router.post('/login', async (req, res, next) => {
+  try {
+    const { login, password } = req.body;
+
+    const user = await db.user.findUnique({
+      where: {
+        login
+      }
+    })
+
+    if(!user) {
+      throw new AppError('Ошибка авторизации. Неверный логин или пароль', 400)
+    }
+
+    const isPasswordCorrect = await verifyPassword(password, user.password!);
+
+    if(!isPasswordCorrect) {
+      throw new AppError('Ошибка авторизации. Неверный логин или пароль', 400)
+    }
+
+    await generateTokensForUser(user.id, res)
+
+    res.status(200).json({ id: user.id });
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
+  }
+})
+
+router.post('/telegram_auth', async (req, res, next) => {
+  try {
+    const data = req.body;
+    const { id, username, photo_url } = data;
+
+    const userId = String(id);
+
+    let user = await db.user.findUnique({
+      where: {
+        id: userId
+      }
+    })
+
+    if(!user) {
+      user = await db.user.create({
+        data: {
+          id: userId,
+          login: username
+        }
+      })
+
+      if(photo_url) {
+        await reuploadPhotoToCloudinary(photo_url, user.id)
+      }
+    }
+
+    await generateTokensForUser(user.id, res)
+  
+    res.status(200).json({ id: user.id });
+    return;
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error)
+    next(wrappedError)
+  }
+})
+
+router.post('/google_auth', async (req, res, next) => {
+  try {
+    const { clientId, credential } = req.body;
+
+    const ticket = await getDecodedOAuthJwtGoogle(credential, clientId);
+
+    const payload = ticket?.getPayload()
+
+    if(!payload) {
+      throw new AppError('Не удалось получить данные пользователя из Google. Проверьте валидность токена.', 422);
+    }
+
+    const login = payload.email?.split('@')[0]
+
+    let user = await db.user.findUnique({
+      where: {
+        login
+      }
+    })
+
+    if(!user) {
+      user = await db.user.create({
+        data: {
+          login: login!
+        }
+      })
+
+      if(payload.picture) {
+        await reuploadPhotoToCloudinary(payload.picture, user.id)
+      }  
+    }
     
-  } catch(e) {
-    res.status(400).json(e);
+    await generateTokensForUser(user.id, res)
+
+    res.status(200).json({ id: user.id });
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
   }
 })
 
-router.post('/login', async (req, res) => {
-  const { login, password } = req.body;
-
-  const user = await db.user.findUnique({
-    where: {
-      login
-    }
-  })
-
-  if(!user) {
-    res.status(400).json({
-      error: 'Ошибка авторизации. Неверный логин или пароль'
-    })
-    return;
-  }
-
-  const isPasswordCorrect = await verifyPassword(password, user.password);
-
-  if(!isPasswordCorrect) {
-    res.status(400).json({
-      error: 'Ошибка авторизации. Неверный логин или пароль'
-    })
-    return;
-  }
-
-  const accessToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET ?? 'secretKey', {
-    expiresIn: '1h'
-  })
-
-  const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET ?? 'refreshSecretKey', {
-    expiresIn: '365d'
-  })
-
-  await db.user.update({
-    where: {
-      id: user.id
-    },
-    data: {
-      refreshToken
-    }
-  })
-
-  res.cookie('refreshToken', refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: 60 * 60 * 1000 * 8760
-  })
-
-  res.cookie('accessToken', accessToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: 60 * 60 * 1000
-  })
-
-  res.status(200).json({ message: 'Успешный вход' });
-  return;
-})
-
-router.post('/logout', async (req, res) => {
+router.post('/logout', async (req, res, next) => {
   try {
     const { accessToken } = req.cookies;
 
     const { id } = jwt.verify(accessToken, process.env.JWT_SECRET ?? 'secretKey') as { id: string };
 
-    await db.user.update({
-      where: {
-        id
-      },
-      data: {
-        refreshToken: null
-      }
-    })
-
-    res.clearCookie('accessToken', {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production'
-    })
-    res.clearCookie('refreshToken', {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production'
-    })
+    await clearTokensForUser(id, res);
 
     res.status(200).send()
-  } catch(e) {
-    res.status(500).json({
-      error: e
-    })
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
   }
-  
 })
 
 export default router;

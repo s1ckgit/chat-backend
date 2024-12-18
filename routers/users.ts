@@ -2,11 +2,12 @@ import { Router } from 'express';
 import db from '../prisma/client';
 import multer from 'multer';
 import { uploadAvatar } from '../utils/media';
+import { AppError, wrapUnknowErrorIntoAppErrorInstance } from '../utils/errors';
 
 const router = Router();
 const upload = multer();
 
-router.get('/user/:id', async (req, res) => {
+router.get('/user/:id', async (req, res, next) => {
   const id = req.params.id;
 
   try {
@@ -17,38 +18,30 @@ router.get('/user/:id', async (req, res) => {
     })
 
     if(!user) {
-      res.status(400).json({
-        error: 'Пользователь не найден'
-      })
-      
-      return;
+      throw new AppError(`Не удалось получить информацию пользователя с id: ${id} Пользователь не найден.`, 404)
     }
 
     res.status(200).json(user);
-  } catch(e) {
-    res.status(500).json({
-      error: 'Ошибка сервера'
-    })
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
   }
 })
 
-router.post('/contacts/add', async (req, res) => {
+router.post('/contacts/add', async (req, res, next) => {
   const { login } = req.body;
 
   const id = req.user?.id;
 
   try {
-    const contactToAdd = await db.user.findUnique({
+    const contactToAddUser = await db.user.findUnique({
       where: {
         login
       }
     })
 
-    if(!contactToAdd) {
-      res.status(404).json({
-        error: 'Пользователь не найден'
-      })
-      return;
+    if(!contactToAddUser) {
+      throw new AppError(`Не удалось добавить пользователя с логином ${login} в список контактов. Пользователь не найден`, 404)
     }
 
     const user = await db.user.findUnique({
@@ -62,19 +55,36 @@ router.post('/contacts/add', async (req, res) => {
     const newContact = await db.userContact.create({
       data: {
         userId: user.id,
-        contactId: contactToAdd.id
+        contactId: contactToAddUser.id
       }
     })
 
-    res.status(201).json(newContact)
-  } catch(e) {
-    res.status(500).json({
-      error: 'Ошибка сервера. Попробуйте позже'
+    const contactFromContactToAddUser = await db.userContact.findFirst({
+      where: {
+        userId: contactToAddUser.id,
+        contactId: user.id
+      }
     })
+
+    if(contactFromContactToAddUser?.conversationId) {
+      await db.userContact.update({
+        where: {
+          id: newContact.id
+        },
+        data: {
+          conversationId: contactFromContactToAddUser.conversationId
+        }
+      })
+    }
+
+    res.status(201).json(newContact)
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
   }
 })
 
-router.get('/me', async (req, res) => {
+router.get('/me', async (req, res, next) => {
   const id = req.user?.id;
   console.log('me', Date.now());
 
@@ -86,22 +96,17 @@ router.get('/me', async (req, res) => {
     })
 
     if(!user) {
-      res.status(400).json({
-        error: 'Пользователь не найден'
-      })
-      
-      return;
+      throw new AppError('Не удалось получить информацию о пользователе. Пользователь не найден.', 404)
     }
 
     res.status(200).json(user);
-  } catch(e) {
-    res.status(500).json({
-      error: 'Ошибка сервера'
-    })
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
   }
 })
 
-router.post('/me', async (req, res) => {
+router.post('/me', async (req, res, next) => {
   const data = req.body;
   const id = req.user?.id;
 
@@ -113,12 +118,13 @@ router.post('/me', async (req, res) => {
       data
     })
     res.status(200).send(user)
-  } catch(e) {
-    console.log(e);
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
   }
 })
 
-router.get('/me/contacts', async (req, res) => {
+router.get('/me/contacts', async (req, res, next) => {
   const id = req.user?.id;
 
   try {
@@ -136,23 +142,16 @@ router.get('/me/contacts', async (req, res) => {
       }
     })
 
-    if(!contacts) {
-      res.status(200).send();
-      return;
-    }
-
     res.status(200).json(contacts);
-  } catch(e) {
-    res.status(500).json({
-      error: 'Ошибка сервера'
-    })
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
   }
 })
 
-router.post('/me/avatar', upload.single('file'), async (req, res) => {
+router.post('/me/avatar', upload.single('file'), async (req, res, next) => {
   if(!req.file) {
-    res.status(400).json({ message: 'Файл не найден' })
-    return
+    throw new AppError('Файл с изображением не найден.', 400)
   }
   const userId = req.user!.id;
 
@@ -170,12 +169,13 @@ router.post('/me/avatar', upload.single('file'), async (req, res) => {
 
     res.status(200).json({ message: 'Файл успешно загружен' })
     return;
-  } catch(e) {
-    res.status(500).json({ message: `Ошибка: ${e}` })
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
   }
 })
 
-router.get('/user/:id/:property', async (req, res) => {
+router.get('/user/:id/:property', async (req, res, next) => {
   const { id, property } = req.params;
 
   try {
@@ -189,14 +189,13 @@ router.get('/user/:id/:property', async (req, res) => {
     })
 
     if(!user) {
-      res.status(404).json({ message: 'Пользователь с таким id не найден' })
-      return;
+      throw new AppError('Пользователь с таким id не найден', 404)
     }
     res.status(200).json(user[property]);
     return;
-  } catch(e) {
-    res.status(500).send(e)
-    return;
+  } catch(error) {
+    const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+    next(wrappedError)
   }
 })
 

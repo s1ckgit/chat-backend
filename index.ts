@@ -11,19 +11,20 @@ import messagesRouter from './routers/messages';
 
 import { authMiddleware } from './middleware/auth';
 import { setupSockets } from './utils/sockets';
+import { appErrorsMiddlewareMiddleware } from './middleware/errors';
 
 const app = express();
 const server = http.createServer(app);
 const PORT = 3000;
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: 'https://barely-romantic-titmouse.ngrok-free.app',
     credentials: true
   },
 });
 
 const corsOptions = {
-  origin: 'http://localhost:5173',
+  origin: 'https://barely-romantic-titmouse.ngrok-free.app',
   credentials: true,
 };
 
@@ -38,7 +39,7 @@ app.use('/api', authRouter);
 app.use('/api', authMiddleware, userRouter);
 app.use('/api', authMiddleware, messagesRouter);
 
-
+app.use(appErrorsMiddlewareMiddleware);
 
 server.listen(PORT, () => {
   console.log('Hello world');

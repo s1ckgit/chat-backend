@@ -17,7 +17,7 @@ datasource db {
 model User {
   id             String        @id @default(uuid())
   login          String        @unique
-  password       String
+  password       String?
   refreshToken   String?
   status         String?
   avatars        Json?

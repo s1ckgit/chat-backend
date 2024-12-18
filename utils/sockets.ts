@@ -1,12 +1,16 @@
 import { Server } from "socket.io";
-import { connectToAllConversations, controlSessionsCount, createMessage, getOrCreateConversation, getUnreadCount, getUserStatus, startStatusUpdater } from '../utils/db';
-import db from '../prisma/client';
-import redis from '../redis/client';
+import { connectToAllConversations, controlSessionsCount, getUserStatus } from '../utils/db';
+import { messages_read_handler, request_unread_count, send_message_handler, typing_handler } from "./socket-handlers";
+import type { Imessages_read_event_data, Irequest_unread_event_data, Isend_message_event_data, Ityping_event_data } from "../types";
+import { startStatusUpdater } from "./redis";
+import { AppError, wrapUnknowErrorIntoAppErrorInstance } from "./errors";
 
 export const setupSockets = (io: Server) => {
   const messagesNamespace = io.of('/api/messages');
   const statusesNamespace = io.of('/api/statuses');
   const usersNamespace = io.of('/api/users');
+  
+  startStatusUpdater(statusesNamespace);
 
   usersNamespace.on('connection', async (socket) => {
     socket.on(`user_avatar`, ({ id }) => {
@@ -18,81 +22,42 @@ export const setupSockets = (io: Server) => {
     })
   })
 
-  startStatusUpdater(statusesNamespace);
-
   statusesNamespace.on('connection', async (socket) => {
-    socket.on('get_status', async ({ id }) => {
-      const status = await getUserStatus(id);
-      socket.join(`status-${id}`);
-      socket.emit(`status_${id}`, {
-        status: status
-      });
-    })
-    socket.on('get_status_off', async ({ id }) => {
-      socket.leave(`status-${id}`)
-    })
+    try {
+      socket.on('get_status', async ({ id }) => {
+        const status = await getUserStatus(id);
+        socket.join(`status-${id}`);
+        socket.emit(`status_${id}`, {
+          status: status
+        });
+      })
+      socket.on('get_status_off', async ({ id }) => {
+        socket.leave(`status-${id}`)
+      })
+    } catch(error) {
+      const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+      socket.emit('error', { error: wrappedError })
+    }
   })
 
   messagesNamespace.on('connection', async (socket) => {
-    const userId = socket.handshake.query.userId as string;
-    if(!userId) return;
-    socket.join(userId);
-    await connectToAllConversations({ userId, socket });
-    await controlSessionsCount({ userId, messagesSocket: socket, statusesNamespace });
+    try {
+      const userId = socket.handshake.query.userId as string;
+      if(!userId) return;
+      socket.join(userId);
+      await connectToAllConversations({ userId, socket });
+      await controlSessionsCount({ userId, messagesSocket: socket, statusesNamespace });
 
-    socket.on('typing', async ({ userId, conversationId }) => {
-      messagesNamespace.to(conversationId).emit(`typing_${conversationId}`, {
-        userId
-      })
-    })
+      socket.on('typing', (data: Ityping_event_data) => typing_handler(messagesNamespace, data))
 
-    socket.on('send_message', async ({ conversationId, senderId, receiverId, content, id: messageId, createdAt, status, attachments }) => {
+      socket.on('send_message', (data: Isend_message_event_data) => send_message_handler(socket, messagesNamespace, data))
 
-      try {
-        const conversation = await getOrCreateConversation({ conversationId, senderId, receiverId, userId, namespace: messagesNamespace })
-        
-        await createMessage({ messageId, createdAt, content, senderId, conversation, status, attachments, namespace: messagesNamespace })
+      socket.on('messages_read', (data: Imessages_read_event_data) => messages_read_handler(socket, messagesNamespace, userId, data))
 
-        await redis.sAdd(`unread_messages:${conversation?.id}:${messageId}`, receiverId);
-
-        const unreadCount = await getUnreadCount({ conversationId, userId: receiverId });
-        messagesNamespace.to(receiverId).emit(`unread_count_${conversationId}`, { unreadCount });
-
-      } catch (e) {
-          console.error('Error sending message:', e);
-          socket.emit('error', { message: 'Ошибка на сервере при отправке сообщения.' });
-      }
-    })
-
-    socket.on('messages_read', async ({ ids, conversationId }) => {
-      try {
-        await db.message.updateMany({
-          where: {
-            id: { in: ids }
-          },
-          data: {
-            status: 'read'
-          }
-        });
-
-        for (const messageId of ids) {
-          await redis.sRem(`unread_messages:${conversationId}:${messageId}`, userId);
-        }
-        messagesNamespace.to(conversationId).emit(`messages_read_${conversationId}`, {
-          ids
-        });
-        
-        const unreadCount = await getUnreadCount({ conversationId, userId });
-        messagesNamespace.to(userId).emit(`unread_count_${conversationId}`, { unreadCount });
-        console.log('messages_read')
-      } catch(e) {
-        console.log('error', e)
-      }
-    })
-
-    socket.on('request_unread_count', async ({ conversationId }) => {
-      const unreadCount = await getUnreadCount({ conversationId, userId });
-      socket.emit(`unread_count_${conversationId}`, { unreadCount });
-    })
+      socket.on('request_unread_count', (data: Irequest_unread_event_data) => request_unread_count(socket, userId, data))
+    } catch(error) {
+      const wrappedError = wrapUnknowErrorIntoAppErrorInstance(error);
+      socket.emit('error', { error: wrappedError })
+    }
   });
 } 

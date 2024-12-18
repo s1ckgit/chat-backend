@@ -1,13 +1,25 @@
 import { Namespace, Socket } from 'socket.io';
 import db from '../prisma/client';
 import redis from '../redis/client';
-import cron from 'node-cron';
 import { format } from "date-fns";
+import { AppError } from './errors';
 
-export async function getOrCreateConversation({ conversationId, senderId, receiverId, userId, namespace }: { conversationId: string, senderId: string, receiverId: string, userId: string, namespace: Namespace }) {
+export async function getOrCreateConversation({ 
+  conversationId, 
+  senderId, 
+  receiverId, 
+  namespace
+ }: Pick<IMessage, 'conversationId' | 'senderId'> & { namespace: Namespace, receiverId: string }) {
   if (conversationId) {
-    return await db.conversation.findFirst({ where: { id: conversationId } });
-  } else {
+    const conversation = await db.conversation.findFirst({ where: { id: conversationId } });
+
+    if(!conversation) {
+      throw new AppError('Диалог не найден', 404);
+    }
+
+    return conversation;
+  } 
+  else {
     const newConversation = await db.conversation.create({
       data: {
         participants: {
@@ -19,13 +31,21 @@ export async function getOrCreateConversation({ conversationId, senderId, receiv
       }
     });
 
-    const contact = await db.userContact.findFirst({ where: { userId: senderId, contactId: receiverId } });
-    await db.userContact.update({ where: { id: contact?.id }, data: { conversationId: newConversation.id } });
+    const [senderContact, receiverContact] = await getBothContacts(senderId, receiverId);
 
-    namespace.to([userId, contact?.contactId!]).emit('new_conversation', {
+    if(!senderContact) {
+      throw new AppError('Контакт отправителя не найден', 404);
+    }
+
+    await db.userContact.update({ where: { id: senderContact.id }, data: { conversationId: newConversation.id } });
+    if(receiverContact) {
+      await db.userContact.update({ where: { id: receiverContact.id }, data: { conversationId: newConversation.id } })
+    }
+
+    namespace.to([senderId, receiverId]).emit('new_conversation', {
       id: newConversation.id
     });
-    namespace.to(userId).emit('new_conversation_opened', {
+    namespace.to(senderId).emit('new_conversation_opened', {
       id: newConversation.id
     })
 
@@ -52,27 +72,36 @@ export async function connectToAllConversations({ userId, socket }: { userId: st
     socket.on('new_conversation', ({ id }) => {
       socket.join(id);
     })
+
   } catch (error) {
-    console.error('Error connecting to rooms:', error);
-    socket.emit('error');
+    throw error
   }
 }
 
-export async function createMessage({ messageId, createdAt, content, senderId, conversation, status, attachments, namespace }: { attachments: { secure_url: string, preview_url: string }[], messageId: string, createdAt: string, content: string, senderId: string, conversation: { id: string; lastMessageId: string | null; createdAt: Date; } | null, status: string, namespace: Namespace }) {
+export async function createMessage({ 
+  id, 
+  createdAt, 
+  content, 
+  senderId, 
+  conversationId, 
+  status, 
+  attachments, 
+  namespace
+ }: IMessage & { namespace: Namespace }  ) {
   let message = await db.message.create({
     data: {
-      id: messageId,
+      id,
       createdAt,
       content,
       senderId,
-      conversationId: conversation!.id,
+      conversationId,
       status,
       attachments
     },
   });
 
   await db.conversation.update({
-    where: { id: conversation!.id },
+    where: { id: conversationId },
     data: { lastMessageId: message.id }
   })
 
@@ -87,16 +116,19 @@ export async function createMessage({ messageId, createdAt, content, senderId, c
 
   const dateGroup = format(new Date(), 'dd.MM.yyyy')
 
-  namespace.to(conversation!.id).emit(`new_message_${conversation!.id}`, {
+  namespace.to(conversationId).emit(`new_message_${conversationId}`, {
     message,
     dateGroup
   });
 }
 
-export async function controlSessionsCount({ userId, messagesSocket, statusesNamespace }: { userId: string, messagesSocket: Socket, statusesNamespace: Namespace }) {
+export async function controlSessionsCount({ 
+  userId, 
+  messagesSocket, 
+  statusesNamespace
+ }: { userId: string, messagesSocket: Socket, statusesNamespace: Namespace }) {
   const currentStatus = await getUserStatus(userId);
 
-  
   const sessionsCount = await redis.incr(`active_sessions:${userId}`);
 
   if (sessionsCount >= 1 && currentStatus !== 'online') {
@@ -110,7 +142,6 @@ export async function controlSessionsCount({ userId, messagesSocket, statusesNam
   
   messagesSocket.on('disconnect', async () => {
     const sessionsCount = await redis.decr(`active_sessions:${userId}`);
-    console.log('disconnected', sessionsCount);
 
     if (sessionsCount <= 0) {
       await redis.del(`active_sessions:${userId}`);
@@ -121,7 +152,7 @@ export async function controlSessionsCount({ userId, messagesSocket, statusesNam
   });
 } 
 
-async function updateUserStatus({ userId, status }: { userId: string, status: string }) {
+export async function updateUserStatus({ userId, status }: { userId: string, status: string }) {
   await db.user.update({
     where: { id: userId },
     data: { status }
@@ -149,39 +180,23 @@ export async function getUserStatus(userId: string) {
   return null;
 }
 
-export async function processOfflineStatus(statusesNamespace: Namespace) {
-  const now = Date.now();
-  
-  const expiredUsers = await redis.zRangeByScore("disconnect_timers", "-inf", now);
-
-  const promises = expiredUsers.map(async (userId) => {
-    try {
-      const now = Date.now();
-      await updateUserStatus({ userId, status: `lastActive:${now}` });
-      statusesNamespace.to(`status-${userId}`).emit(`status_${userId}`, { status: `lastActive:${now}` });
-      await redis.zRem("disconnect_timers", userId);
-    } catch (error) {
-      console.error(`Error updating status for user ${userId}:`, error);
+export const getBothContacts = async (senderId: string, receiverId: string) => {
+  const senderContactPromise = db.userContact.findFirst({ 
+    where: {
+      userId: senderId,
+      contactId: receiverId
     }
-  });
-  
-  await Promise.all(promises);  
-}
+  })
 
-export function startStatusUpdater(statusesNamespace: Namespace) {
-  cron.schedule('*/10 * * * * *', async () => {
-    await processOfflineStatus(statusesNamespace);
-  });
-}
+  const receiverContactPromise = db.userContact.findFirst({
+    where: {
+      userId: receiverId,
+      contactId: senderId
+    }
+  })
 
-export async function getUnreadCount({ conversationId, userId }: { conversationId: string, userId: string }) {
-  const messageKeys = await redis.keys(`unread_messages:${conversationId}:*`);
-  let unreadCount = 0;
+  const [senderContact, receiverContact] = await Promise.all([senderContactPromise, receiverContactPromise]);
 
-  const promises = messageKeys.map(key => redis.sIsMember(key, userId));
-  const results = await Promise.all(promises);
+  return [senderContact, receiverContact];
 
-  unreadCount = results.filter(isUnread => isUnread).length;
-
-  return unreadCount;
 }

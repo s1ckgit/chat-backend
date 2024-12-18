@@ -5,15 +5,18 @@ dotenv.config();
 const cloud = cloudinary.v2;
 const uploader = cloud.uploader;
 
-const convertImageFileToBase64 = (imageFile: Express.Multer.File) => {
+interface ImageFile {
+  mimetype: string;
+  buffer: Buffer;
+}
+
+const convertImageFileToBase64 = (imageFile: ImageFile) => {
   const base64Image = `data:${imageFile.mimetype};base64,${imageFile.buffer.toString('base64')}`;
   return base64Image;
 }
 
-export const uploadAvatar = async (imageFile: Express.Multer.File, userId: string) => {
+export const uploadAvatar = async (imageFile: ImageFile, userId: string) => {
   const image = convertImageFileToBase64(imageFile);
-
-  console.time('avatar upload');
 
   const thumbnailPromise = uploader.upload(image, {
     upload_preset: 'public_avatars_thumbnail',
@@ -31,8 +34,6 @@ export const uploadAvatar = async (imageFile: Express.Multer.File, userId: strin
   })
 
   const [{ secure_url: thumbnailUrl }, { secure_url: originalUrl }] = await Promise.all([thumbnailPromise, originalPromise]);
-
-  console.timeEnd('avatar upload');
 
   return {
     thumbnailUrl,
