@@ -88,7 +88,7 @@ export async function createMessage({
   attachments, 
   namespace
  }: IMessage & { namespace: Namespace }  ) {
-  let message = await db.message.create({
+  const message = await db.message.create({
     data: {
       id,
       createdAt,
@@ -104,15 +104,6 @@ export async function createMessage({
     where: { id: conversationId },
     data: { lastMessageId: message.id }
   })
-
-  // message = await db.message.update({
-  //   where: {
-  //     id: message.id
-  //   },
-  //   data: {
-  //     status: 'delivered'
-  //   }
-  // })
 
   const dateGroup = format(new Date(), 'dd.MM.yyyy')
 

@@ -57,14 +57,12 @@ export const clearTokensForUser = async (userId: User['id'], res: Response) => {
 
   res.clearCookie('accessToken', {
     httpOnly: true,
-    sameSite: 'none',
-    // secure: process.env.NODE_ENV === 'production'
+    sameSite: 'lax',
     secure: true
   })
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    sameSite: 'none',
-    // secure: process.env.NODE_ENV === 'production'
+    sameSite: 'lax',
     secure: true
   })
 }
@@ -90,17 +88,15 @@ export const generateTokensForUser = async (userId: User['id'], res: Response) =
 
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
-    // secure: process.env.NODE_ENV === 'production',
     secure: true,
-    sameSite: 'none',
+    sameSite: 'lax',
     maxAge: 60 * 60 * 1000 * 8760
   })
 
   res.cookie('accessToken', accessToken, {
     httpOnly: true,
-    // secure: process.env.NODE_ENV === 'production',
     secure: true,
-    sameSite: 'none',
+    sameSite: 'lax',
     maxAge: 60 * 60 * 1000
   })
 }

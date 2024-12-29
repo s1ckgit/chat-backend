@@ -14,11 +14,21 @@ router.get('/messages/:id', async (req, res, next) => {
     const result = await db.$queryRaw`
       SELECT 
         TO_CHAR("createdAt", 'DD.MM.YYYY') AS date,
-        JSON_AGG(m.* ORDER BY m."createdAt") AS messages
+        JSON_AGG(
+          json_build_object(
+            'id', m.id,
+            'createdAt', to_char("createdAt", 'YYYY-MM-DD"T"HH24:MI:SS.MSZ'),
+            'content', m.content,
+            'senderId', m."senderId",
+            'conversationId', m."conversationId",
+            'status', m.status,
+            'attachments', m.attachments
+          ) ORDER BY m."createdAt"
+        ) AS messages
       FROM "Message" m
       WHERE m."conversationId" = ${conversationId}
-      GROUP BY date
-      ORDER BY date ASC;
+      GROUP BY TO_CHAR("createdAt", 'DD.MM.YYYY')
+      ORDER BY MIN(m."createdAt") ASC;
     `;
   
     res.status(200).json(result);
@@ -27,29 +37,6 @@ router.get('/messages/:id', async (req, res, next) => {
     next(wrappedError)
   }
 })
-
-  // router.get('/lastmessage/:conversationId', async (req, res) => {
-  //   const { conversationId } = req.params;
-
-  //   try {
-  //     const lastMessage = await db.conversation.findUnique({
-  //       where: {
-  //         id: conversationId
-  //       },
-  //       select: {
-  //         lastMessage: true
-  //       }
-  //     })
-
-  //     const result = lastMessage?.lastMessage;
-
-  //     res.status(200).json(result);
-  //   } catch(e) {
-  //     res.status(500).json({
-  //       error: 'Ошибка сервера'
-  //     })
-  //   }
-  // })
 
 router.get('/me/conversations', async (req, res, next) => {
   const userId = req.user?.id;

@@ -86,7 +86,6 @@ router.post('/contacts/add', async (req, res, next) => {
 
 router.get('/me', async (req, res, next) => {
   const id = req.user?.id;
-  console.log('me', Date.now());
 
   try {
     const user = await db.user.findUnique({

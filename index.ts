@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
@@ -13,20 +15,17 @@ import { authMiddleware } from './middleware/auth';
 import { setupSockets } from './utils/sockets';
 import { appErrorsMiddlewareMiddleware } from './middleware/errors';
 
-const app = express();
-const server = http.createServer(app);
-const PORT = 3000;
-const io = new Server(server, {
-  cors: {
-    origin: 'https://barely-romantic-titmouse.ngrok-free.app',
-    credentials: true
-  },
-});
-
 const corsOptions = {
-  origin: 'https://barely-romantic-titmouse.ngrok-free.app',
+  origin: 'http://localhost:5173',
   credentials: true,
 };
+
+const app = express();
+const server = http.createServer(app);
+const PORT = process.env.PORT || 3000;
+const io = new Server(server, {
+  cors: corsOptions,
+});
 
 
 
@@ -41,6 +40,4 @@ app.use('/api', authMiddleware, messagesRouter);
 
 app.use(appErrorsMiddlewareMiddleware);
 
-server.listen(PORT, () => {
-  console.log('Hello world');
-})
+server.listen(PORT)
