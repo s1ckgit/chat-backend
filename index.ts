@@ -16,7 +16,7 @@ import { setupSockets } from './utils/sockets';
 import { appErrorsMiddlewareMiddleware } from './middleware/errors';
 
 const corsOptions = {
-  origin: 'http://localhost:5173',
+  origin: 'https://telegaramm.ru',
   credentials: true,
 };
 
